@@ -78,17 +78,21 @@ class LMStudioClient:
         except:
             return False
     
-    def analyze_image(self, image_path, categories, threshold):
+    def analyze_image(self, image_path, categories, threshold, settings):
         """Analyze a single image and return category assignments."""
         try:
             # Read the image file and encode as base64
             with open(image_path, 'rb') as f:
                 image_data = base64.b64encode(f.read()).decode('utf-8')
             
-            # Create the prompt with explicit category list
-            categories_list = "\n".join([f"- {cat}" for cat in categories])
-            prompt = f"""Analyze this image and assign it to one or more of these EXACT categories (do not create new categories):
-{categories_list}
+            # Create the prompt with priority categories first
+            priority_list = "\n".join([f"- {cat} (priority)" for cat in categories if cat in settings.get('priority_categories', [])])
+            regular_list = "\n".join([f"- {cat}" for cat in categories if cat not in settings.get('priority_categories', [])])
+            
+            prompt = f"""Analyze this image and assign it to one or more of these EXACT categories (do not create new ones). Favor priority categories when confident:
+
+{priority_list}
+{regular_list}
 
 Return the category(ies) and a confidence score (0-1) for each.
 Format your response as JSON: {{"categories": [{{"name": "category", "confidence": 0.9}}]}}
@@ -236,6 +240,20 @@ def collect_user_inputs():
         except ValueError as e:
             print(f"Error: {e}")
     
+    # Get priority categories
+    while True:
+        priority_categories_str = input("Enter priority categories (comma-separated subset of previous categories, or none): ").strip()
+        try:
+            if not priority_categories_str:
+                priority_categories = []
+            else:
+                priority_categories = [cat.strip() for cat in priority_categories_str.split(',') if cat.strip()]
+                if not all(cat in categories for cat in priority_categories):
+                    raise ValueError("Priority categories must be a subset of main categories")
+            break
+        except ValueError as e:
+            print(f"Error: {e}")
+    
     # Get confidence threshold
     while True:
         threshold_str = input("Enter confidence threshold (0-1, default adaptive): ").strip()
@@ -279,6 +297,7 @@ def collect_user_inputs():
     print("\n=== Settings Summary ===")
     print(f"Photo Directory: {photo_dir}")
     print(f"Categories: {', '.join(categories)}")
+    print(f"Priority Categories: {', '.join(priority_categories) if priority_categories else 'None'}")
     print(f"Confidence Threshold: {'Adaptive' if threshold is None else threshold}")
     print(f"Ambiguity Mode: {ambiguity_mode}")
     print(f"Output Mode: {output_mode}")
@@ -298,6 +317,7 @@ def collect_user_inputs():
     return {
         'photo_dir': photo_dir,
         'categories': categories,
+        'priority_categories': priority_categories,
         'threshold': threshold,
         'ambiguity_mode': ambiguity_mode,
         'output_mode': output_mode,
@@ -359,7 +379,8 @@ def process_single_image(client, image_path, settings):
         result = client.analyze_image(
             image_path,
             settings['categories'],
-            settings['threshold']
+            settings['threshold'],
+            settings
         )
         
         # Print the result
@@ -382,7 +403,8 @@ def process_all_images(client, image_list, settings):
             result = client.analyze_image(
                 image_path,
                 settings['categories'],
-                settings['threshold']
+                settings['threshold'],
+                settings
             )
             if result:
                 # Extract JSON from markdown code block
@@ -399,9 +421,10 @@ def process_all_images(client, image_list, settings):
     print("\nProcessing complete!")
     return results
 
-def calculate_adaptive_threshold(results):
+def calculate_adaptive_threshold(results, settings):
     """Calculate an adaptive threshold based on confidence score distribution."""
     all_confidences = []
+    priority_confidences = []
     
     # Collect all confidence scores
     for result in results.values():
@@ -410,16 +433,23 @@ def calculate_adaptive_threshold(results):
             if json_str.startswith('json\n'):
                 json_str = json_str[5:].strip()
             result_json = json.loads(json_str)
-            confidences = [cat['confidence'] for cat in result_json['categories']]
-            all_confidences.extend(confidences)
+            
+            # Separate priority and non-priority confidences
+            for cat in result_json['categories']:
+                if cat['name'] in settings.get('priority_categories', []):
+                    priority_confidences.append(cat['confidence'])
+                all_confidences.append(cat['confidence'])
         except Exception:
             continue
     
     if not all_confidences:
         return 0.7  # Default threshold if no valid scores
     
-    # Sort confidences in descending order
-    sorted_confidences = sorted(all_confidences, reverse=True)
+    # If we have priority categories, use their distribution
+    if priority_confidences:
+        sorted_confidences = sorted(priority_confidences, reverse=True)
+    else:
+        sorted_confidences = sorted(all_confidences, reverse=True)
     
     # Find the steepest drop in confidence scores
     max_drop = 0
@@ -435,6 +465,8 @@ def calculate_adaptive_threshold(results):
     adaptive_threshold = sorted_confidences[threshold_idx]
     
     print(f"\nAdaptive threshold calculated: {adaptive_threshold:.3f}")
+    if priority_confidences:
+        print(f"Based on priority categories distribution")
     return adaptive_threshold
 
 def output_results(results, settings):
@@ -453,7 +485,7 @@ def output_results(results, settings):
     uncertain_dir.mkdir(exist_ok=True)
     
     # Calculate threshold (adaptive or fixed)
-    threshold = settings['threshold'] if settings['threshold'] is not None else calculate_adaptive_threshold(results)
+    threshold = settings['threshold'] if settings['threshold'] is not None else calculate_adaptive_threshold(results, settings)
     
     # Process each image based on output mode
     import csv
@@ -483,20 +515,33 @@ def output_results(results, settings):
                 # Check if any category meets the threshold
                 has_valid_category = False
                 
-                # Process each category
-                for cat_info in categories:
-                    # Only use categories that were specified by the user
-                    if cat_info['name'] not in settings['categories']:
-                        continue
-                        
-                    if cat_info['confidence'] >= threshold:
-                        has_valid_category = True
-                        target_dir = base_dir / cat_info['name']
+                # Handle priority categories in move mode
+                if settings['output_mode'] == 'move' and settings.get('priority_categories'):
+                    priority_hits = [cat for cat in categories if cat['name'] in settings['priority_categories'] and cat['confidence'] >= threshold]
+                    if priority_hits:
+                        # Use highest confidence priority category
+                        best_priority = max(priority_hits, key=lambda x: x['confidence'])
+                        target_dir = base_dir / best_priority['name']
                         target_path = target_dir / image_path.name
-                        if settings['output_mode'] == 'move':
-                            shutil.move(str(image_path), str(target_path))
-                        else:  # copy
-                            shutil.copy2(str(image_path), str(target_path))
+                        shutil.move(str(image_path), str(target_path))
+                        has_valid_category = True
+                
+                # If no priority category met threshold, use standard logic
+                if not has_valid_category:
+                    # Process each category
+                    for cat_info in categories:
+                        # Only use categories that were specified by the user
+                        if cat_info['name'] not in settings['categories']:
+                            continue
+                            
+                        if cat_info['confidence'] >= threshold:
+                            has_valid_category = True
+                            target_dir = base_dir / cat_info['name']
+                            target_path = target_dir / image_path.name
+                            if settings['output_mode'] == 'move':
+                                shutil.move(str(image_path), str(target_path))
+                            else:  # copy
+                                shutil.copy2(str(image_path), str(target_path))
                 
                 # If no valid categories or none meet threshold, move to Uncertain
                 if not has_valid_category:

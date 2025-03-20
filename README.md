@@ -14,6 +14,15 @@ A Python tool that uses LM Studio's vision models to automatically organize phot
 - Adaptive confidence thresholding
 - Supports subfolder scanning
 - Handles various image formats (JPG, PNG, WEBP)
+- **Priority Categories**: Set specific categories as priority to ensure they are favored when the model is confident about them
+- **Adaptive Threshold**: Automatically adjusts confidence threshold based on priority category distribution
+- **Multiple Output Modes**: 
+  - Move: Organize photos into category folders
+  - Copy: Create category folders while preserving original files
+  - Report: Generate detailed analysis without moving files
+- **Ambiguity Handling**:
+  - Single: Use highest confidence category
+  - Multiple: Allow multiple categories when confidence is high
 
 ## Prerequisites
 
@@ -42,13 +51,30 @@ pip install -r requirements.txt
 python photo_sorter.py
 ```
 
-3. Follow the prompts to:
-   - Enter your photo directory path
-   - Specify categories (comma-separated)
-   - Set confidence threshold (or use adaptive thresholding)
-   - Choose ambiguity mode (single/multi)
-   - Select output mode (move/copy/tag/report)
-   - Choose whether to scan subfolders
+3. Enter the directory containing your photos
+
+4. Enter categories (comma-separated) for classification
+
+5. Enter priority categories (comma-separated) - these will be favored when the model is confident
+
+6. Choose confidence threshold:
+   - Enter a value (0.0-1.0)
+   - Or press Enter for adaptive threshold based on priority categories
+
+7. Select ambiguity mode:
+   - Single: Use highest confidence category
+   - Multiple: Allow multiple categories when confidence is high
+
+8. Choose output mode:
+   - Move: Organize photos into category folders
+   - Copy: Create category folders while preserving original files
+   - Report: Generate detailed analysis without moving files
+
+9. Choose whether to scan subfolders
+
+10. Review settings and confirm
+
+11. Wait for processing to complete
 
 ### Adaptive Thresholding
 

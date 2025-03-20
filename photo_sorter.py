@@ -85,11 +85,17 @@ class LMStudioClient:
             with open(image_path, 'rb') as f:
                 image_data = base64.b64encode(f.read()).decode('utf-8')
             
-            # Create the prompt with priority categories first
-            priority_list = "\n".join([f"- {cat} (priority)" for cat in categories if cat in settings.get('priority_categories', [])])
-            regular_list = "\n".join([f"- {cat}" for cat in categories if cat not in settings.get('priority_categories', [])])
-            
-            prompt = f"""Analyze this image and assign it to one or more of these EXACT categories (do not create new ones). Favor priority categories when confident:
+            # Create the prompt based on auto mode
+            if settings.get('auto_mode', False):
+                prompt = """Analyze this image and suggest 3-5 categories with confidence scores (0-1). 
+Return as JSON: {"categories": [{"name": "category", "confidence": 0.9}]}. 
+Do not use predefined categories. Be specific and descriptive."""
+            else:
+                # Create the prompt with priority categories first
+                priority_list = "\n".join([f"- {cat} (priority)" for cat in categories if cat in settings.get('priority_categories', [])])
+                regular_list = "\n".join([f"- {cat}" for cat in categories if cat not in settings.get('priority_categories', [])])
+                
+                prompt = f"""Analyze this image and assign it to one or more of these EXACT categories (do not create new ones). Favor priority categories when confident:
 
 {priority_list}
 {regular_list}
@@ -130,23 +136,25 @@ IMPORTANT: Only use the categories listed above. Do not create or suggest new ca
             result = response.json()
             content = result['choices'][0]['message']['content']
             
-            # Validate that only user-specified categories are used
+            # Validate that only user-specified categories are used in non-auto mode
             try:
                 json_str = content.strip('`').strip()
                 if json_str.startswith('json\n'):
                     json_str = json_str[5:].strip()
                 result_json = json.loads(json_str)
                 
-                # Filter out any hallucinated categories
-                valid_categories = []
-                for cat in result_json['categories']:
-                    if cat['name'] in categories:
-                        valid_categories.append(cat)
-                    else:
-                        print(f"Warning: Ignoring hallucinated category '{cat['name']}' for {image_path.name}")
+                if not settings.get('auto_mode', False):  # Only filter categories in non-auto mode
+                    # Filter out any hallucinated categories
+                    valid_categories = []
+                    for cat in result_json['categories']:
+                        if cat['name'] in categories:
+                            valid_categories.append(cat)
+                        else:
+                            print(f"Warning: Ignoring hallucinated category '{cat['name']}' for {image_path.name}")
+                    
+                    # Update the response with only valid categories
+                    result_json['categories'] = valid_categories
                 
-                # Update the response with only valid categories
-                result_json['categories'] = valid_categories
                 return json.dumps(result_json)
                 
             except Exception as e:

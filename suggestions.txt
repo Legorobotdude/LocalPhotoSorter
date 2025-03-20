@@ -155,4 +155,76 @@ Future Improvements:
 - Add custom category rules
 - Implement category hierarchies
 - Add support for metadata tagging
-- Enable custom confidence thresholds per category 
+- Enable custom confidence thresholds per category
+
+Auto Mode Enhancements:
+
+1. Category Management
+- Add ability to save and reuse discovered categories
+- Implement category merging for similar suggestions
+- Add support for category aliases and synonyms
+- Include category popularity statistics
+- Allow manual category refinement
+
+2. Confidence Handling
+- Implement adaptive confidence thresholds per category
+- Add confidence score visualization
+- Include confidence trend analysis
+- Support minimum confidence requirements
+- Add confidence-based category filtering
+
+3. Analysis Improvements
+- Add support for batch category suggestions
+- Implement category hierarchy detection
+- Include category relationship analysis
+- Add support for multi-label classification
+- Implement category co-occurrence analysis
+
+4. User Interface
+- Add category suggestion preview
+- Implement category refinement interface
+- Include category statistics dashboard
+- Add support for category blacklist/whitelist
+- Implement category suggestion history
+
+5. Output Enhancements
+- Add category distribution visualization
+- Include category trend analysis
+- Support custom category naming rules
+- Add category-based file organization
+- Implement category metadata export
+
+6. Performance
+- Cache category suggestions
+- Implement parallel category analysis
+- Add support for incremental updates
+- Optimize category suggestion storage
+- Implement category suggestion batching
+
+7. Advanced Features
+- Add support for custom category rules
+- Implement category learning from user feedback
+- Include category-based image clustering
+- Add support for category hierarchies
+- Implement category-based search
+
+8. Integration
+- Add support for external category databases
+- Implement category suggestion APIs
+- Include category export/import
+- Add support for category sharing
+- Implement category versioning
+
+9. Quality Control
+- Add category suggestion validation
+- Implement category quality metrics
+- Include category consistency checks
+- Add support for category refinement
+- Implement category suggestion review
+
+10. Future Improvements
+- Add support for category-based image editing
+- Implement category-based image enhancement
+- Include category-based image organization
+- Add support for category-based sharing
+- Implement category-based backup 

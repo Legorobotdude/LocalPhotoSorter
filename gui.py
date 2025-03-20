@@ -7,6 +7,7 @@ import json
 import threading
 import shutil
 from datetime import datetime
+import requests
 
 # Create the main window
 root = ttk.Window()
@@ -74,10 +75,14 @@ def validate_inputs():
             raise ValueError("Please select a photo directory")
         photo_dir = validate_photo_directory(folder)
         
-        # Validate categories
-        categories = validate_categories(cat_entry.get().strip())
-        if not categories:
-            raise ValueError("Please enter at least one category")
+        # Validate categories based on auto mode
+        cat_str = cat_entry.get().strip()
+        if auto_mode_var.get():
+            categories = []  # Auto mode doesn't use predefined categories
+        else:
+            categories = validate_categories(cat_str)
+            if not categories:
+                raise ValueError("Please enter at least one category")
             
         # Validate priority categories
         priority_cats = [cat.strip() for cat in priority_entry.get().split(',') if cat.strip()]
@@ -100,6 +105,7 @@ def validate_inputs():
             'threshold': threshold,
             'ambiguity_mode': ambig_mode,
             'output_mode': output_mode,
+            'auto_mode': auto_mode_var.get(),
             'preprocess': preprocess_var.get(),
             'scan_subfolders': subfolder_var.get()
         }
@@ -191,6 +197,20 @@ browse_btn.pack(side=LEFT)
 cat_frame = ttk.LabelFrame(main_frame, text='Categories', padding=10)
 cat_frame.pack(fill=X, pady=(0, 10))
 
+# Auto Mode Checkbox
+auto_mode_var = BooleanVar(value=False)
+auto_mode_check = ttk.Checkbutton(
+    cat_frame,
+    text='Enable Auto Mode (AI will suggest categories)',
+    variable=auto_mode_var,
+    command=lambda: [
+        cat_entry.configure(state='disabled' if auto_mode_var.get() else 'normal'),
+        priority_entry.configure(state='disabled' if auto_mode_var.get() else 'normal'),
+        validate_inputs()
+    ]
+)
+auto_mode_check.pack(anchor=W, pady=(0, 10))
+
 ttk.Label(cat_frame, text='Enter categories (comma-separated):').pack(anchor=W)
 cat_entry = ttk.Entry(cat_frame)
 cat_entry.pack(fill=X, pady=(5, 10))
@@ -267,6 +287,7 @@ priority_entry.bind('<KeyRelease>', on_input_change)
 thresh_entry.bind('<KeyRelease>', on_input_change)
 ambig_combo.bind('<<ComboboxSelected>>', on_input_change)
 output_combo.bind('<<ComboboxSelected>>', on_input_change)
+auto_mode_var.trace_add('write', lambda *args: on_input_change())
 
 # Bind checkbox changes
 preprocess_var.trace_add('write', on_input_change)
@@ -425,6 +446,86 @@ def process_images():
                         update_status(f"Error processing {f}: {err}", "danger")
                     )
             
+            # In Auto mode, consolidate categories
+            if settings['auto_mode']:
+                # Collect all unique categories
+                all_categories = set()
+                for _, result in results:
+                    all_categories.update(cat['name'] for cat in result['categories'])
+                
+                # Update progress for category consolidation
+                root.after(0, lambda: progress_label.configure(text='Consolidating categories...'))
+                
+                try:
+                    # Create prompt for category consolidation
+                    categories_list = "\n".join([f"- {cat}" for cat in sorted(all_categories)])
+                    consolidation_prompt = f"""Analyze these categories and organize them into logical groups with minimal overlap. 
+Each category should be clear and distinct. Return as JSON:
+{{
+    "categories": [
+        {{
+            "name": "main_category",
+            "subcategories": ["subcategory1", "subcategory2"]
+        }}
+    ]
+}}
+
+Categories to organize:
+{categories_list}
+
+IMPORTANT: 
+1. Keep categories clear and distinct
+2. Minimize overlap between categories
+3. Use descriptive names
+4. Group related concepts together
+5. Create as many categories as needed to properly organize the content"""
+
+                    # Send consolidation request to LLM
+                    response = requests.post(
+                        f"{client.base_url}/v1/chat/completions",
+                        json={
+                            "model": client.model,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": consolidation_prompt
+                                }
+                            ]
+                        }
+                    )
+                    
+                    if response.status_code != 200:
+                        raise ValueError(f"Failed to consolidate categories: {response.text}")
+                    
+                    # Parse consolidation result
+                    consolidation_result = response.json()
+                    content = consolidation_result['choices'][0]['message']['content']
+                    json_str = content.strip('`').strip()
+                    if json_str.startswith('json\n'):
+                        json_str = json_str[5:].strip()
+                    consolidated_categories = json.loads(json_str)
+                    
+                    # Create a mapping of original categories to consolidated ones
+                    category_mapping = {}
+                    for main_cat in consolidated_categories['categories']:
+                        for subcat in main_cat['subcategories']:
+                            category_mapping[subcat] = main_cat['name']
+                    
+                    # Update results with consolidated categories
+                    for image_file, result in results:
+                        for cat in result['categories']:
+                            if cat['name'] in category_mapping:
+                                cat['name'] = category_mapping[cat['name']]
+                    
+                    # Update settings with consolidated categories
+                    settings['categories'] = [cat['name'] for cat in consolidated_categories['categories']]
+                    
+                except Exception as e:
+                    root.after(0, lambda err=str(e): 
+                        update_status(f"Error consolidating categories: {err}", "danger")
+                    )
+                    return
+            
             # Handle results based on output mode
             if settings['output_mode'] == 'report':
                 # Generate report file
@@ -433,10 +534,12 @@ def process_images():
                     f.write(f"Photo Sorting Report\n")
                     f.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                     f.write(f"Settings:\n")
+                    f.write(f"- Auto Mode: {'Enabled' if settings['auto_mode'] else 'Disabled'}\n")
                     f.write(f"- Categories: {', '.join(settings['categories'])}\n")
                     f.write(f"- Priority Categories: {', '.join(settings['priority_categories'])}\n")
                     f.write(f"- Threshold: {settings['threshold']}\n")
-                    f.write(f"- Ambiguity Mode: {settings['ambiguity_mode']}\n\n")
+                    f.write(f"- Ambiguity Mode: {settings['ambiguity_mode']}\n")
+                    f.write(f"- Output Mode: {settings['output_mode']}\n\n")
                     
                     f.write(f"Results:\n")
                     f.write("-" * 80 + "\n\n")
@@ -454,13 +557,18 @@ def process_images():
                 ))
                 
             elif settings['output_mode'] in ['move', 'copy']:
-                # Create category folders and move/copy files
-                for category in settings['categories']:
+                # Collect all categories (now consolidated if in auto mode)
+                all_categories = set()
+                for _, result in results:
+                    all_categories.update(cat['name'] for cat in result['categories'])
+                
+                # Create category folders
+                for category in all_categories:
                     category_dir = photo_dir / category
                     category_dir.mkdir(exist_ok=True)
                 
+                # Move/copy files to their highest confidence category
                 for image_file, result in results:
-                    # Get highest confidence category for the image
                     if result['categories']:
                         top_category = max(result['categories'], key=lambda x: x['confidence'])
                         if top_category['confidence'] >= (settings['threshold'] or 0.5):
@@ -478,7 +586,7 @@ def process_images():
                                 )
                 
                 root.after(0, lambda: update_status(
-                    f"Processed {processed} images successfully! Files have been {settings['output_mode']}d to category folders.", 
+                    f"Processed {processed} images successfully! Files have been {settings['output_mode'].lower()}ed to category folders.", 
                     "success"
                 ))
             

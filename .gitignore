@@ -1,0 +1,35 @@
+# Python virtual environment
+venv/
+env/
+ENV/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+*.jpg
+*.jpeg
+*.png
+*.webp
+analysis_report.csv
+Uncertain/
+bikini/
+one piece/
+sci-fi/
+
+# OS specific
+.DS_Store
+Thumbs.db 

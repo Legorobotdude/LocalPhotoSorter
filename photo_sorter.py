@@ -8,14 +8,45 @@ class LMStudioClient:
     def __init__(self, base_url="http://localhost:1234"):
         self.base_url = base_url
         self.model = None
+        self.available_models = []
     
-    def load_model(self, model_name="sharegpt"):
+    def get_available_models(self):
+        """Get list of available models from LM Studio."""
+        try:
+            response = requests.get(f"{self.base_url}/v1/models")
+            if response.status_code == 200:
+                models = response.json().get('data', [])
+                return models
+            return []
+        except Exception as e:
+            print(f"Error getting available models: {str(e)}")
+            return []
+    
+    def load_model(self, model_name=None):
         """Load the specified model in LM Studio."""
         try:
             # Check if LM Studio is running
-            response = requests.get(f"{self.base_url}/v1/models")
-            if response.status_code != 200:
-                raise ConnectionError("Could not connect to LM Studio. Is it running?")
+            self.available_models = self.get_available_models()
+            if not self.available_models:
+                raise ValueError("No models found in LM Studio. Please load a model first.")
+            
+            # If no model specified, let user choose
+            if not model_name:
+                print("\nAvailable models:")
+                for i, model in enumerate(self.available_models, 1):
+                    print(f"{i}. {model['id']}")
+                
+                while True:
+                    try:
+                        choice = int(input("\nSelect a model number (or 0 to exit): "))
+                        if choice == 0:
+                            raise ValueError("No model selected")
+                        if 1 <= choice <= len(self.available_models):
+                            model_name = self.available_models[choice-1]['id']
+                            break
+                        print("Invalid selection. Please try again.")
+                    except ValueError:
+                        print("Please enter a valid number.")
             
             # Load the model
             response = requests.post(
@@ -30,6 +61,7 @@ class LMStudioClient:
                 raise ValueError(f"Failed to load model: {response.text}")
             
             self.model = model_name
+            print(f"\nSuccessfully loaded model: {model_name}")
             return True
             
         except requests.exceptions.ConnectionError:
@@ -279,21 +311,12 @@ def scan_images(photo_dir, scan_subfolders=True):
     return image_list
 
 def initialize_lm_studio():
-    """Initialize LM Studio and load the vision model."""
+    """Initialize connection to LM Studio."""
     print("\n=== Initializing LM Studio ===\n")
     
-    client = LMStudioClient()
-    
-    # Test connection
-    if not client.test_connection():
-        print("Error: Could not connect to LM Studio. Please ensure it's running.")
-        return None
-    
-    # Load the model
     try:
-        success = client.load_model()
-        if success:
-            print("Model loaded successfully.")
+        client = LMStudioClient()
+        if client.load_model():
             return client
     except Exception as e:
         print(f"Error: {str(e)}")

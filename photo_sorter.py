@@ -377,7 +377,7 @@ def output_results(results, settings):
     
     base_dir = settings['photo_dir']
     
-    # Create category directories
+    # Create only user-specified category directories
     for category in settings['categories']:
         category_dir = base_dir / category
         category_dir.mkdir(exist_ok=True)
@@ -413,19 +413,18 @@ def output_results(results, settings):
             elif settings['output_mode'] in ['move', 'copy']:
                 # Process each category
                 for cat_info in categories:
+                    # Only use categories that were specified by the user
+                    if cat_info['name'] not in settings['categories']:
+                        continue
+                        
                     if cat_info['confidence'] >= settings['threshold']:
                         target_dir = base_dir / cat_info['name']
                     else:
                         target_dir = uncertain_dir
                     
-                    # Check if target directory is a subdirectory of the image's current location
-                    if target_dir.is_relative_to(image_path.parent):
-                        print(f"Warning: Skipping {image_path.name} - target directory is a subdirectory of current location")
-                        continue
-                    
                     target_path = target_dir / image_path.name
                     if settings['output_mode'] == 'move':
-                        move_or_copy_file(str(image_path), str(target_path))
+                        shutil.copy2(str(image_path), str(target_path))
                 
             elif settings['output_mode'] == 'tag':
                 # Add categories to EXIF data

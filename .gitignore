@@ -22,8 +22,12 @@ build/
 # Project specific
 *.jpg
 *.jpeg
+!images/*.jpg
+!images/*.jpeg
 *.png
+!images/*.png
 *.webp
+!images/*.webp
 analysis_report.csv
 Uncertain/
 bikini/

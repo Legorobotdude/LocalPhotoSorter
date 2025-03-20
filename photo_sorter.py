@@ -3,6 +3,7 @@ from pathlib import Path
 import requests
 import json
 import base64
+import shutil
 
 class LMStudioClient:
     def __init__(self, base_url="http://localhost:1234"):
@@ -386,7 +387,6 @@ def output_results(results, settings):
     uncertain_dir.mkdir(exist_ok=True)
     
     # Process each image based on output mode
-    import shutil
     import csv
     from PIL import Image
     from PIL.ExifTags import TAGS
@@ -425,9 +425,7 @@ def output_results(results, settings):
                     
                     target_path = target_dir / image_path.name
                     if settings['output_mode'] == 'move':
-                        shutil.move(str(image_path), str(target_path))
-                    else:  # copy
-                        shutil.copy2(str(image_path), str(target_path))
+                        move_or_copy_file(str(image_path), str(target_path))
                 
             elif settings['output_mode'] == 'tag':
                 # Add categories to EXIF data
@@ -475,6 +473,23 @@ def output_results(results, settings):
         print(f"\nReport generated: {report_path}")
     
     print("\nOutput processing complete!")
+
+def move_or_copy_file(src, dst, mode="move"):
+    """Move or copy a file to a destination directory."""
+    try:
+        # Ensure destination directory exists
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        
+        # Move or copy the file
+        if mode == "move":
+            shutil.move(src, dst)
+        else:  # copy
+            shutil.copy2(src, dst)
+            
+        return True
+    except Exception as e:
+        print(f"Error {mode}ing file: {str(e)}")
+        return False
 
 if __name__ == "__main__":
     settings = collect_user_inputs()

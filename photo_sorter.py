@@ -85,11 +85,14 @@ class LMStudioClient:
             with open(image_path, 'rb') as f:
                 image_data = base64.b64encode(f.read()).decode('utf-8')
             
-            # Create the prompt
-            prompt = f"""Analyze this image and assign it to one or more of these categories: {', '.join(categories)}.
+            # Create the prompt with explicit category list
+            categories_list = "\n".join([f"- {cat}" for cat in categories])
+            prompt = f"""Analyze this image and assign it to one or more of these EXACT categories (do not create new categories):
+{categories_list}
+
 Return the category(ies) and a confidence score (0-1) for each.
 Format your response as JSON: {{"categories": [{{"name": "category", "confidence": 0.9}}]}}
-If confidence is below {threshold}, mark it as "Uncertain" with confidence 0.0."""
+IMPORTANT: Only use the categories listed above. Do not create or suggest new categories."""
             
             # Send request to LM Studio with base64 image data
             response = requests.post(
@@ -119,11 +122,32 @@ If confidence is below {threshold}, mark it as "Uncertain" with confidence 0.0."
             if response.status_code != 200:
                 raise ValueError(f"Failed to analyze image: {response.text}")
             
-            print("Analysis response:", response.text)  # Debug print
-            
             # Parse the response
             result = response.json()
-            return result['choices'][0]['message']['content']
+            content = result['choices'][0]['message']['content']
+            
+            # Validate that only user-specified categories are used
+            try:
+                json_str = content.strip('`').strip()
+                if json_str.startswith('json\n'):
+                    json_str = json_str[5:].strip()
+                result_json = json.loads(json_str)
+                
+                # Filter out any hallucinated categories
+                valid_categories = []
+                for cat in result_json['categories']:
+                    if cat['name'] in categories:
+                        valid_categories.append(cat)
+                    else:
+                        print(f"Warning: Ignoring hallucinated category '{cat['name']}' for {image_path.name}")
+                
+                # Update the response with only valid categories
+                result_json['categories'] = valid_categories
+                return json.dumps(result_json)
+                
+            except Exception as e:
+                print(f"Error validating categories: {str(e)}")
+                return json.dumps({"categories": []})
             
         except Exception as e:
             raise Exception(f"Error analyzing image: {str(e)}")
@@ -214,9 +238,12 @@ def collect_user_inputs():
     
     # Get confidence threshold
     while True:
-        threshold_str = input("Enter confidence threshold (0-1, default 0.7): ").strip()
+        threshold_str = input("Enter confidence threshold (0-1, default adaptive): ").strip()
         try:
-            threshold = validate_threshold(threshold_str) if threshold_str else 0.7
+            if not threshold_str:
+                threshold = None  # Will use adaptive threshold
+            else:
+                threshold = validate_threshold(threshold_str)
             break
         except ValueError as e:
             print(f"Error: {e}")
@@ -252,7 +279,7 @@ def collect_user_inputs():
     print("\n=== Settings Summary ===")
     print(f"Photo Directory: {photo_dir}")
     print(f"Categories: {', '.join(categories)}")
-    print(f"Confidence Threshold: {threshold}")
+    print(f"Confidence Threshold: {'Adaptive' if threshold is None else threshold}")
     print(f"Ambiguity Mode: {ambiguity_mode}")
     print(f"Output Mode: {output_mode}")
     print(f"Scan Subfolders: {'Yes' if scan_subfolders else 'No'}")
@@ -348,6 +375,7 @@ def process_all_images(client, image_list, settings):
     print("\n=== Processing All Images ===\n")
     results = {}
     
+    # Process all images, including the first one
     for i, image_path in enumerate(image_list, 1):
         print(f"\nProcessing image {i}/{len(image_list)}: {image_path.name}")
         try:
@@ -371,13 +399,51 @@ def process_all_images(client, image_list, settings):
     print("\nProcessing complete!")
     return results
 
+def calculate_adaptive_threshold(results):
+    """Calculate an adaptive threshold based on confidence score distribution."""
+    all_confidences = []
+    
+    # Collect all confidence scores
+    for result in results.values():
+        try:
+            json_str = result.strip('`').strip()
+            if json_str.startswith('json\n'):
+                json_str = json_str[5:].strip()
+            result_json = json.loads(json_str)
+            confidences = [cat['confidence'] for cat in result_json['categories']]
+            all_confidences.extend(confidences)
+        except Exception:
+            continue
+    
+    if not all_confidences:
+        return 0.7  # Default threshold if no valid scores
+    
+    # Sort confidences in descending order
+    sorted_confidences = sorted(all_confidences, reverse=True)
+    
+    # Find the steepest drop in confidence scores
+    max_drop = 0
+    threshold_idx = 0
+    
+    for i in range(len(sorted_confidences) - 1):
+        drop = sorted_confidences[i] - sorted_confidences[i + 1]
+        if drop > max_drop:
+            max_drop = drop
+            threshold_idx = i
+    
+    # Use the confidence score at the steepest drop as threshold
+    adaptive_threshold = sorted_confidences[threshold_idx]
+    
+    print(f"\nAdaptive threshold calculated: {adaptive_threshold:.3f}")
+    return adaptive_threshold
+
 def output_results(results, settings):
     """Organize images based on user-selected output mode."""
     print("\n=== Processing Output ===\n")
     
     base_dir = settings['photo_dir']
     
-    # Create only user-specified category directories
+    # Create category directories
     for category in settings['categories']:
         category_dir = base_dir / category
         category_dir.mkdir(exist_ok=True)
@@ -385,6 +451,9 @@ def output_results(results, settings):
     # Create Uncertain directory
     uncertain_dir = base_dir / 'Uncertain'
     uncertain_dir.mkdir(exist_ok=True)
+    
+    # Calculate threshold (adaptive or fixed)
+    threshold = settings['threshold'] if settings['threshold'] is not None else calculate_adaptive_threshold(results)
     
     # Process each image based on output mode
     import csv
@@ -411,19 +480,30 @@ def output_results(results, settings):
                 continue
                 
             elif settings['output_mode'] in ['move', 'copy']:
+                # Check if any category meets the threshold
+                has_valid_category = False
+                
                 # Process each category
                 for cat_info in categories:
                     # Only use categories that were specified by the user
                     if cat_info['name'] not in settings['categories']:
                         continue
                         
-                    if cat_info['confidence'] >= settings['threshold']:
+                    if cat_info['confidence'] >= threshold:
+                        has_valid_category = True
                         target_dir = base_dir / cat_info['name']
-                    else:
-                        target_dir = uncertain_dir
-                    
-                    target_path = target_dir / image_path.name
+                        target_path = target_dir / image_path.name
+                        if settings['output_mode'] == 'move':
+                            shutil.move(str(image_path), str(target_path))
+                        else:  # copy
+                            shutil.copy2(str(image_path), str(target_path))
+                
+                # If no valid categories or none meet threshold, move to Uncertain
+                if not has_valid_category:
+                    target_path = uncertain_dir / image_path.name
                     if settings['output_mode'] == 'move':
+                        shutil.move(str(image_path), str(target_path))
+                    else:  # copy
                         shutil.copy2(str(image_path), str(target_path))
                 
             elif settings['output_mode'] == 'tag':
@@ -443,13 +523,20 @@ def output_results(results, settings):
                 
         except Exception as e:
             print(f"Error processing {image_path.name}: {str(e)}")
+            # Move to Uncertain on error
+            if settings['output_mode'] in ['move', 'copy']:
+                target_path = uncertain_dir / image_path.name
+                if settings['output_mode'] == 'move':
+                    shutil.move(str(image_path), str(target_path))
+                else:  # copy
+                    shutil.copy2(str(image_path), str(target_path))
     
     # Generate report if in report mode
     if settings['output_mode'] == 'report':
         report_path = base_dir / 'analysis_report.csv'
         with open(report_path, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['Image', 'Categories', 'Confidence'])
+            writer.writerow(['Image', 'Categories', 'Confidence', 'Threshold'])
             
             for image_path, result in results.items():
                 try:
@@ -465,9 +552,9 @@ def output_results(results, settings):
                         for cat in categories
                     ])
                     
-                    writer.writerow([image_path.name, cat_str])
+                    writer.writerow([image_path.name, cat_str, f"{threshold:.3f}"])
                 except Exception as e:
-                    writer.writerow([image_path.name, f"Error: {str(e)}"])
+                    writer.writerow([image_path.name, f"Error: {str(e)}", f"{threshold:.3f}"])
         
         print(f"\nReport generated: {report_path}")
     
@@ -497,11 +584,8 @@ if __name__ == "__main__":
         if client:
             image_list = scan_images(settings['photo_dir'], settings['scan_subfolders'])
             if image_list:
-                # Process first image as test case
-                test_result = process_single_image(client, image_list[0], settings)
-                if test_result:
-                    print("\nTest case successful. Processing remaining images...")
-                    results = process_all_images(client, image_list[1:], settings)
-                    if results:
-                        output_results(results, settings)
-                    print("\nAll processing complete!") 
+                # Process all images
+                results = process_all_images(client, image_list, settings)
+                if results:
+                    output_results(results, settings)
+                print("\nAll processing complete!") 

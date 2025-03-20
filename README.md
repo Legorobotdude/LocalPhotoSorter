@@ -15,8 +15,9 @@ Photo Sorter represents a cutting-edge application of vision-language models (VL
   - Make nuanced decisions about image categorization
   - Adapt confidence thresholds based on content distribution
   - Handle ambiguous cases intelligently
+  - Automatically discover and organize meaningful categories
 
-This approach enables the system to perform tasks that traditionally required human judgment, such as understanding that a "beach vacation" photo might belong in both "Vacation" and "Nature" categories, with contextually appropriate confidence levels.
+This approach enables the system to perform tasks that traditionally required human judgment, such as understanding that a "beach vacation" photo might belong in both "Vacation" and "Nature" categories, with contextually appropriate confidence levels. The advanced automatic categorization feature takes this a step further by allowing the AI to discover and organize categories based on the actual content of your photo library, making it particularly powerful for large collections where manual category definition would be impractical.
 
 ## 📸 Interface
 
@@ -32,6 +33,7 @@ This approach enables the system to perform tasks that traditionally required hu
   - Support for multiple categories per photo
   - Priority category system for focused categorization
   - Adaptive confidence thresholding
+  - **Automatic Category Discovery**: AI-powered category suggestion and organization
 - **Multiple Output Modes**:
   - Move: Organize photos into category folders
   - Copy: Create category folders while preserving originals
@@ -40,6 +42,7 @@ This approach enables the system to perform tasks that traditionally required hu
   - Recursive subfolder scanning
   - Real-time progress tracking
   - Support for JPG, PNG, and WEBP formats
+  - **Intelligent Category Consolidation**: Automatically organizes discovered categories into logical groups
 - **Validation & Error Handling**:
   - Input validation for all settings
   - Comprehensive error reporting
@@ -85,8 +88,9 @@ python gui.py
    - Select a vision model from the dropdown
    - Click "Load Selected Model"
    - Choose your photo directory using "Browse"
-   - Enter categories (comma-separated)
-   - Optionally specify priority categories
+   - Enable Auto Mode for AI-powered category discovery, or:
+     - Enter categories (comma-separated)
+     - Optionally specify priority categories
    - Set confidence threshold or use adaptive
    - Choose output mode (Move/Copy/Report)
    - Click "Test with First Image" to verify setup
@@ -95,9 +99,11 @@ python gui.py
 ## 📋 Configuration Options
 
 ### Categories
-- Main categories: Required, comma-separated (e.g., "Family, Vacation, Pets")
-- Priority categories: Optional, must be subset of main categories
-- Will be used for model prompting and classification
+- **Auto Mode**: Enable AI-powered category discovery
+- Manual Mode:
+  - Main categories: Required, comma-separated (e.g., "Family, Vacation, Pets")
+  - Priority categories: Optional, must be subset of main categories
+  - Will be used for model prompting and classification
 
 ### Processing Modes
 - **Ambiguity Mode**:
@@ -122,6 +128,7 @@ Generates a detailed report file containing:
 - Per-image results with confidence scores
 - Priority category matches
 - Processing statistics
+- Discovered categories (in Auto Mode)
 
 ### File Organization
 When using Move/Copy modes:
@@ -129,6 +136,7 @@ When using Move/Copy modes:
 - Handles naming conflicts
 - Preserves original paths in Copy mode
 - Maintains image metadata
+- Organizes files based on AI-discovered categories (in Auto Mode)
 
 ## 🤝 Contributing
 
